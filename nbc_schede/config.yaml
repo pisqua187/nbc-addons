@@ -1,5 +1,5 @@
 name: "NBC Schede Tecniche"
-version: "1.2.0"
+version: "1.2.1"
 slug: "nbc_schede"
 description: "Storico smalti e schede di fotoepilazione delle clienti New Body Center"
 arch:
@@ -19,7 +19,7 @@ map:
   - share:ro
 options:
   api_key: ""
-  dashboard_url: "/"
+  dashboard_url: "/nbc-studio/home"
 schema:
   api_key: password?
   dashboard_url: str
