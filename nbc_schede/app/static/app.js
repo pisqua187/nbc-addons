@@ -159,14 +159,62 @@ async function clientView(id, tab) {
   setTitle(c.name);
   $("#view").innerHTML = `
     <div class="card no-print"><div class="bar">
-      <div class="grow"><b style="font-size:20px">${esc(c.name)}</b>
-        <div class="sub">${c.birth_date ? `${fmtDay(c.birth_date)} (${age(c.birth_date)} anni)` : "Data di nascita non indicata"} · ${c.phone ? esc(c.phone) : "nessun cellulare"}${c.notes ? " · " + esc(c.notes) : ""}</div></div>
-      <a class="btn" href="#/c/${id}/modifica">Modifica</a></div></div>
+      <a class="grow namelink" href="#/c/${id}/modifica" title="Modifica i dati della cliente">
+        <b style="font-size:20px">${esc(c.name)}</b> <span class="pencil">✎</span>
+        <div class="sub">${c.birth_date ? `${fmtDay(c.birth_date)} (${age(c.birth_date)} anni)` : "Data di nascita non indicata"} · ${c.phone ? esc(c.phone) : "nessun cellulare"}${c.notes ? " · " + esc(c.notes) : ""}</div></a>
+      <button id="switchC">⇄ Cambia cliente</button></div>
+      <div id="switchBox" hidden style="margin-top:12px">
+        <input id="sq" class="search" type="search" placeholder="Cerca un'altra cliente" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        <div id="sres"></div></div></div>
     <nav class="tabs no-print"><a href="#/c/${id}" class="${tab === "smalti" ? "on" : ""}">💅 Smalti</a>
       <a href="#/c/${id}/laser" class="${tab === "laser" ? "on" : ""}">✨ Fotoepilazione</a></nav>
     <div id="tab"></div>`;
+  const suffix = tab === "laser" ? "/laser" : "";
+  $("#switchC").onclick = () => {
+    const box = $("#switchBox"); box.hidden = !box.hidden;
+    if (!box.hidden) { $("#sq").value = ""; $("#sres").innerHTML = ""; $("#sq").focus(); }
+  };
+  $("#sq").oninput = debounce(safe(async () => {
+    const text = val("sq");
+    if (!text) { $("#sres").innerHTML = ""; return; }
+    const rows = (await api("/api/clients?q=" + encodeURIComponent(text))).filter(r => r.id !== id).slice(0, 8);
+    $("#sres").innerHTML = rows.map(r => `<a class="row" href="#/c/${r.id}${suffix}">
+      <span class="grow"><b>${esc(r.name)}</b>${r.phone ? `<br><span class="sub">${esc(r.phone)}</span>` : ""}</span><span class="sub">›</span></a>`).join("")
+      || `<div class="empty">Nessuna cliente trovata</div>`;
+  }), 180);
   if (tab === "smalti") await polishTab(c); else await laserTab(c);
+  swipeToDelete($("#tab"));
 }
+
+/* ---------- scorri a sinistra per eliminare (righe .swipe con data-del) ---------- */
+function swipeToDelete(root) {
+  $$(".swipe", root).forEach(el => {
+    let x0 = null, y0 = 0;
+    el.addEventListener("pointerdown", e => { x0 = e.clientX; y0 = e.clientY; el._swiped = false; });
+    el.addEventListener("pointermove", e => {
+      if (x0 === null) return;
+      const dx = e.clientX - x0, dy = e.clientY - y0;
+      if (Math.abs(dx) < 35 || Math.abs(dy) > Math.abs(dx)) return;
+      x0 = null; el._swiped = true;
+      if (dx < 0) { $$(".swipe.open").forEach(o => o.classList.remove("open")); el.classList.add("open"); }
+      else el.classList.remove("open");
+    });
+    const end = () => { x0 = null; };
+    el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+    $(".sdel", el).onclick = safe(async () => {
+      await api(el.dataset.del, { method: "DELETE" }); toast(el.dataset.msg || "Eliminato"); router();
+    });
+  });
+}
+// Dopo uno scorrimento il "clic" non deve aprire la riga; con una riga aperta, un tocco altrove la richiude.
+document.addEventListener("click", e => {
+  const sw = e.target.closest?.(".swipe");
+  if (sw && sw._swiped) { sw._swiped = false; e.stopPropagation(); e.preventDefault(); return; }
+  const open = $$(".swipe.open");
+  if (open.length && !e.target.closest(".sdel")) {
+    open.forEach(o => o.classList.remove("open")); e.stopPropagation(); e.preventDefault();
+  }
+}, true);
 
 async function polishTab(c) {
   $("#tab").innerHTML = `
@@ -179,10 +227,10 @@ async function polishTab(c) {
       <div class="chips" id="chips"></div>
       <button class="pink" id="psave">Salva smalto</button>
     </div>
-    <div class="card"><h2>Storico smalti</h2>${c.polish_history.length ? c.polish_history.map(r => `
-      <div class="row"><span class="grow"><b>${esc(r.polish)}</b><br>
+    <div class="card"><h2>Storico smalti</h2>${c.polish_history.length ? `<p class="sub hint">Scorri una riga verso sinistra per eliminarla</p>` + c.polish_history.map(r => `
+      <div class="row swipe" data-del="/api/records/${r.id}" data-msg="Smalto eliminato"><span class="grow"><b>${esc(r.polish)}</b><br>
         <span class="sub">${fmtDay(r.day)}${r.operator ? " · " + esc(r.operator) : ""}${r.notes ? " · " + esc(r.notes) : ""}</span></span>
-        <button class="danger" data-del="${r.id}">Elimina</button></div>`).join("") : `<div class="empty">Ancora nessuno smalto registrato</div>`}
+        <button class="sdel">Elimina</button></div>`).join("") : `<div class="empty">Ancora nessuno smalto registrato</div>`}
     </div>`;
   const polish = $("#polish");
   const suggest = safe(async () => {
@@ -198,10 +246,6 @@ async function polishTab(c) {
     await post(`/api/clients/${c.id}/records`, { polish: val("polish"), notes: val("pnotes") || null, operator: val("pop") || null });
     toast("Smalto salvato"); router();
   });
-  $$("[data-del]").forEach(b => b.onclick = safe(async () => {
-    if (!confirm("Eliminare questa registrazione?")) return;
-    await api("/api/records/" + b.dataset.del, { method: "DELETE" }); toast("Eliminata"); router();
-  }));
   await suggest();
 }
 
@@ -220,12 +264,12 @@ async function laserTab(c) {
       </div>
       <div class="scroll-x"><table class="sheet">
         <thead><tr><th>Data</th><th>Zona trattata</th><th>Freq. J/cm²</th><th>Freq. Hz</th><th>Operatore</th><th class="act"></th></tr></thead>
-        <tbody>${rows.map(t => `<tr class="click" data-id="${t.id}">
+        <tbody>${rows.map(t => `<tr class="click swipe" data-id="${t.id}" data-del="/api/laser/${t.id}" data-msg="Trattamento eliminato">
           <td>${fmtDay(t.day)}</td><td>${esc(t.zone)}</td><td>${esc(t.fluence)}</td><td>${esc(t.hz)}</td><td>${esc(t.operator)}</td>
-          <td class="act"><button class="link">Modifica</button></td></tr>`).join("")}
+          <td class="act"><button class="link">Modifica</button><button class="sdel">Elimina</button></td></tr>`).join("")}
           ${'<tr class="blank print-only-row"><td></td><td></td><td></td><td></td><td></td><td class="act"></td></tr>'.repeat(blanks)}
         </tbody></table></div>
-      ${rows.length ? "" : `<div class="empty no-print">Nessun trattamento registrato</div>`}
+      ${rows.length ? `<p class="sub hint no-print">Tocca un trattamento per modificarlo, scorrilo verso sinistra per eliminarlo</p>` : `<div class="empty no-print">Nessun trattamento registrato</div>`}
     </div>
     <div class="card no-print" id="tForm"></div>`;
   $("#print").onclick = () => window.print();
