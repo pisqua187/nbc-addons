@@ -3,6 +3,7 @@
 import logging
 import os
 import secrets
+from html import escape as html_escape
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -87,7 +88,8 @@ def create_app(db_path: str | None = None, api_key: str | None = None) -> FastAP
         # ?v=<data modifica> obbliga Safari a scaricare app.js nuovo dopo ogni aggiornamento
         v = int((STATIC / "app.js").stat().st_mtime)
         html = (STATIC / "index.html").read_text(encoding="utf-8").replace(
-            '"static/app.js"', f'"static/app.js?v={v}"')
+            '"static/app.js"', f'"static/app.js?v={v}"').replace(
+            "__DASHBOARD__", html_escape(os.getenv("DASHBOARD_URL", "/"), quote=True))
         return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/status", dependencies=[api])

@@ -82,6 +82,22 @@ async function router() {
 window.addEventListener("hashchange", () => { depth++; router(); });
 $("#back").onclick = () => depth > 0 ? history.back() : go("#/");
 $("#settingsBtn").onclick = () => go("#/impostazioni");
+
+/* Tasto "Dashboard": visibile solo quando l'app gira dentro Home Assistant (Ingress, in un riquadro).
+   Naviga la pagina di Home Assistant come fa HA stesso (stessa origine), senza ricaricarla. */
+(() => {
+  let top = null;
+  try { if (window.top !== window && window.top.location.origin === location.origin) top = window.top; } catch {}
+  if (!top) return;
+  const url = document.body.dataset.dashboard || "/";
+  $("#dash").hidden = false;
+  $("#dash").onclick = () => {
+    try {
+      top.history.pushState(null, "", url);
+      top.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
+    } catch { top.location.href = url; }
+  };
+})();
 const setTitle = (t) => { $("#title").textContent = t; document.title = t + " · Salone"; };
 
 /* ---------- home: ricerca + recenti ---------- */

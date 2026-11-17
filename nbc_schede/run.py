@@ -16,6 +16,8 @@ try:
 except (OSError, ValueError):
     pass
 os.environ["API_KEY"] = opts.get("api_key") or ""
+# indirizzo della dashboard per il tasto "Dashboard", es. /dashboard-nbc/0
+os.environ["DASHBOARD_URL"] = (opts.get("dashboard_url") or "/").strip() or "/"
 
 # Primo avvio: se c'e' un database copiato dal PC in /share/nbc_schede, lo usa.
 # Non sovrascrive MAI un database gia' presente.

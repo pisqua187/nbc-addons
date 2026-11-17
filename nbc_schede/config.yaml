@@ -1,5 +1,5 @@
 name: "NBC Schede Tecniche"
-version: "1.1.0"
+version: "1.2.0"
 slug: "nbc_schede"
 description: "Storico smalti e schede di fotoepilazione delle clienti New Body Center"
 arch:
@@ -19,8 +19,10 @@ map:
   - share:ro
 options:
   api_key: ""
+  dashboard_url: "/"
 schema:
   api_key: password?
+  dashboard_url: str
 # Porta diretta disattivata: si entra solo da Home Assistant (login richiesto).
 # Se un giorno serve l'accesso diretto, attivala dalla scheda "Rete" dell'add-on e imposta api_key.
 ports:
