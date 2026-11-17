@@ -1,0 +1,8 @@
+# Card per la dashboard NBC Studio: Modifica dashboard -> Aggiungi card -> Manuale -> incolla
+type: button
+name: Schede Tecniche
+icon: mdi:clipboard-text
+show_state: false
+tap_action:
+  action: navigate
+  navigation_path: /hassio/ingress/local_nbc_schede
