@@ -17,6 +17,29 @@ function printButton(el, send, okMsg) {
   });
 }
 
+/* consenso presente: modulo digitale firmato oppure cartaceo registrato */
+const hasConsent = (c) => !!(c.last_consent || c.paper_consent);
+
+/* "Ha gia' firmato il cartaceo": piccolo form sotto il pulsante (data firma, nota) */
+function paperConsentButtons(c) {
+  $$(".paperBtn").forEach(btn => btn.onclick = () => {
+    const box = btn.closest(".card").querySelector(".paperForm");
+    box.hidden = !box.hidden;
+    if (box.hidden) return;
+    box.innerHTML = `<div class="grid" style="margin-top:10px;grid-template-columns:200px 1fr">
+        <div><label>Data della firma sul foglio</label><input type="date" class="pday" value="${todayIso()}" max="${todayIso()}"></div>
+        <div><label>Nota (facoltativa, es. dove è archiviato)</label><input class="pnote" placeholder="es. raccoglitore consensi 2025" autocomplete="off"></div></div>
+      <div class="bar" style="margin-top:10px"><button class="primary psave">Registra consenso cartaceo</button><button class="pcancel">Annulla</button></div>`;
+    $(".pcancel", box).onclick = () => { box.hidden = true; };
+    $(".psave", box).onclick = safe(async () => {
+      await post(`/api/clients/${c.id}/paper-consents`, {
+        signed_on: $(".pday", box).value || null, note: $(".pnote", box).value.trim() || null,
+        operator: store.get("salone.operator") || null });
+      toast("Consenso cartaceo registrato"); router();
+    });
+  });
+}
+
 let textsCache = null;
 async function consentTexts() { return textsCache ??= await api("/api/texts"); }
 const ageAt = (iso) => { if (!iso) return null; const b = new Date(iso + "T12:00"), n = new Date();
@@ -231,11 +254,16 @@ async function consentDetailView(cid) {
 
 /* ---------- scheda fotoepilazione: avviso modulo, check up, moduli firmati ---------- */
 async function laserExtras(c) {
-  const [T, cu, list] = await Promise.all([consentTexts(), api(`/api/clients/${c.id}/checkup`), api(`/api/clients/${c.id}/consents`)]);
+  const [T, cu, list, paper] = await Promise.all([consentTexts(), api(`/api/clients/${c.id}/checkup`),
+    api(`/api/clients/${c.id}/consents`), api(`/api/clients/${c.id}/paper-consents`)]);
   const tab = $("#tab");
-  if (!c.last_consent) tab.insertAdjacentHTML("afterbegin", `<div class="card warn no-print"><div class="bar">
-    <span class="grow">⚠️ <b>Manca il modulo privacy e consenso firmato.</b> Fallo firmare prima del primo trattamento.</span>
-    <a class="btn pinkbtn" href="#/c/${c.id}/modulo">📝 Fai firmare</a></div></div>`);
+  if (!hasConsent(c)) {
+    tab.insertAdjacentHTML("afterbegin", `<div class="card warn no-print"><div class="bar">
+      <span class="grow">⚠️ <b>Manca il modulo privacy e consenso firmato.</b> Fallo firmare prima del primo trattamento.</span>
+      <button class="paperBtn">📄 Ha già firmato il cartaceo</button>
+      <a class="btn pinkbtn" href="#/c/${c.id}/modulo">📝 Fai firmare</a></div><div class="paperForm" hidden></div></div>`);
+    paperConsentButtons(c);
+  }
 
   // riepilogo check up anche nella stampa del diario
   const summary = T.checkup.map(f => {
@@ -255,13 +283,20 @@ async function laserExtras(c) {
       <div class="bar" style="margin-top:12px"><button class="primary" id="cusave">Salva check up</button>
         <span class="sub">${cu.updated_at ? `Aggiornato il ${fmtDay(cu.updated_at.slice(0, 10))}${cu.operator ? " da " + esc(cu.operator) : ""}` : "Non ancora compilato"}</span></div>
     </div>
-    <div class="card no-print" id="consentsCard"><div class="bar" style="margin-bottom:8px"><h2 class="grow" style="margin:0">Moduli privacy firmati</h2>
+    <div class="card no-print" id="consentsCard"><div class="bar" style="margin-bottom:8px"><h2 class="grow" style="margin:0">Consensi privacy</h2>
       ${list.length ? `<button id="printAllClient">🖨 Stampa tutti${list.length > 1 ? ` (${list.length})` : ""}</button>` : ""}</div>
       ${list.length ? list.map(m => `<a class="row" href="#/modulo/${m.id}"><span class="grow"><b>Modulo n. ${m.id}</b> · firmato il ${fmtDay(m.signed_at.slice(0, 10))}<br>
         <span class="sub">${m.nessuna ? "Nessuna condizione di salute" : esc([...m.health, m.altro].filter(Boolean).join(", ") || "—")}</span></span>
         ${m.copied_at ? "" : `<span class="pill" style="color:var(--err)">copia Synology in sospeso</span>`}<span class="sub">›</span></a>`).join("")
-        : `<div class="empty">Nessun modulo firmato</div>`}
+        : (paper.length ? "" : `<div class="empty">Nessun modulo firmato</div>`)}
+      ${paper.map(pc => `<div class="row"><span class="grow"><b>📄 Consenso cartaceo</b> · firmato il ${fmtDay(pc.signed_on)}<br>
+        <span class="sub">${[pc.note, pc.operator ? "registrato da " + pc.operator : null].filter(Boolean).map(esc).join(" · ") || "foglio in archivio cartaceo"}</span></span>
+        <span class="pill">cartaceo</span><button class="danger" data-paperdel="${pc.id}">Rimuovi</button></div>`).join("")}
     </div>`);
+  $$("[data-paperdel]").forEach(b => b.onclick = safe(async () => {
+    if (!confirm("Rimuovere la registrazione del consenso cartaceo? (il foglio di carta non viene toccato)")) return;
+    await api("/api/paper-consents/" + b.dataset.paperdel, { method: "DELETE" }); toast("Registrazione rimossa"); router();
+  }));
 
   printButton($("#printAllClient"), () => post(`/api/clients/${c.id}/consents/print`, {}),
     (r) => `${r.printed} ${r.printed === 1 ? "modulo inviato" : "moduli inviati"} alla stampante`);

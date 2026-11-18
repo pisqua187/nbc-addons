@@ -1,5 +1,5 @@
 name: "NBC Schede Tecniche"
-version: "1.4.0"
+version: "1.5.0"
 slug: "nbc_schede"
 description: "Storico smalti e schede di fotoepilazione delle clienti New Body Center"
 arch:

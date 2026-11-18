@@ -55,6 +55,12 @@ class ConsentIn(BaseModel):
     signature_tutore: str | None = Field(default=None, max_length=MAX_SIGNATURE_BYTES * 2)
 
 
+class PaperIn(BaseModel):
+    signed_on: date | None = None    # default: oggi
+    note: str | None = Field(default=None, max_length=300)
+    operator: str | None = Field(default=None, max_length=60)
+
+
 class PrintIn(BaseModel):
     copies: int = Field(default=1, ge=1, le=10)
 
@@ -265,6 +271,29 @@ def build_router(db: Database, now: Callable[[], datetime], consents_dir: str, a
     @r.post("/api/consents/sync")
     def consents_sync():
         return sync_pending()
+
+    # --- consenso cartaceo gia' firmato -----------------------------------------
+    @r.get("/api/clients/{client_id}/paper-consents")
+    def list_paper(client_id: int):
+        client_or_404(client_id)
+        return db.query("SELECT id, signed_on, note, operator, created_at FROM paper_consents "
+                        "WHERE client_id = ? ORDER BY signed_on DESC, id DESC", (client_id,))
+
+    @r.post("/api/clients/{client_id}/paper-consents", status_code=201)
+    def add_paper(client_id: int, body: PaperIn):
+        client_or_404(client_id)
+        day = body.signed_on or now().date()
+        if day > now().date():
+            raise HTTPException(422, "La data della firma non può essere nel futuro")
+        pid = db.conn.execute(
+            "INSERT INTO paper_consents(client_id, signed_on, note, operator) VALUES (?, ?, ?, ?)",
+            (client_id, day.isoformat(), _clean(body.note), _clean(body.operator))).lastrowid
+        return db.one("SELECT id, signed_on, note, operator, created_at FROM paper_consents WHERE id = ?", (pid,))
+
+    @r.delete("/api/paper-consents/{paper_id}", status_code=204)
+    def delete_paper(paper_id: int):
+        if db.conn.execute("DELETE FROM paper_consents WHERE id = ?", (paper_id,)).rowcount == 0:
+            raise HTTPException(404, "Registrazione non trovata")
 
     # --- stampa sulla stampante di rete ---------------------------------------
     printer = os.getenv("PRINTER", "").strip()

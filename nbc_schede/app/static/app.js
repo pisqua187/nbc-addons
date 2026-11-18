@@ -182,11 +182,15 @@ async function clientView(id, tab) {
         <b style="font-size:20px">${esc(c.name)}</b> <span class="pencil">✎</span>
         <div class="sub">${c.birth_date ? `${fmtDay(c.birth_date)} (${age(c.birth_date)} anni)` : "Data di nascita non indicata"} · ${c.phone ? esc(c.phone) : "nessun cellulare"}${c.notes ? " · " + esc(c.notes) : ""}</div></a>
       <button id="switchC">⇄ Cambia cliente</button></div>
-      <div class="bar consent-line ${c.last_consent ? "ok" : "missing"}">
+      <div class="bar consent-line ${hasConsent(c) ? "ok" : "missing"}">
         <span class="grow">${c.last_consent
           ? `✅ Modulo privacy firmato il ${fmtDay(c.last_consent.signed_at.slice(0, 10))} · <a href="#/modulo/${c.last_consent.id}">vedi</a>`
-          : "⚠️ Modulo privacy e consenso non ancora firmato"}</span>
-        <a class="btn ${c.last_consent ? "" : "pinkbtn"}" href="#/c/${id}/modulo">📝 ${c.last_consent ? "Nuovo modulo" : "Fai firmare il modulo"}</a></div>
+          : c.paper_consent
+            ? `📄 Consenso firmato su carta il ${fmtDay(c.paper_consent.signed_on)}${c.paper_consent.note ? " · " + esc(c.paper_consent.note) : ""}`
+            : "⚠️ Modulo privacy e consenso non ancora firmato"}</span>
+        ${hasConsent(c) ? "" : `<button class="paperBtn">📄 Ha già firmato il cartaceo</button>`}
+        <a class="btn ${hasConsent(c) ? "" : "pinkbtn"}" href="#/c/${id}/modulo">📝 ${hasConsent(c) ? "Nuovo modulo digitale" : "Fai firmare il modulo"}</a></div>
+      <div class="paperForm" hidden></div>
       <div id="switchBox" hidden style="margin-top:12px">
         <input id="sq" class="search" type="search" placeholder="Cerca un'altra cliente" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
         <div id="sres"></div></div></div>
@@ -194,6 +198,7 @@ async function clientView(id, tab) {
       <a href="#/c/${id}/laser" class="${tab === "laser" ? "on" : ""}">✨ Fotoepilazione</a></nav>
     <div id="tab"></div>`;
   const suffix = tab === "laser" ? "/laser" : "";
+  paperConsentButtons(c);
   $("#switchC").onclick = () => {
     const box = $("#switchBox"); box.hidden = !box.hidden;
     if (!box.hidden) { $("#sq").value = ""; $("#sres").innerHTML = ""; $("#sq").focus(); }
@@ -341,7 +346,7 @@ async function laserTab(c) {
       const body = { day: val("tday") || null, zone, fluence: val("tflu") || null,
                      hz: val("thz") || null, operator: val("top") || null };
       if (!body.zone) throw new Error("Scegli almeno una zona trattata");
-      if (!editing && !c.last_consent &&
+      if (!editing && !hasConsent(c) &&
           !confirm("La cliente non ha ancora firmato il modulo privacy e consenso. Registrare comunque il trattamento?")) return;
       if (editing) await post("/api/laser/" + t.id, body, "PUT");
       else await post(`/api/clients/${c.id}/laser`, body);

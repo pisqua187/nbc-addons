@@ -68,6 +68,17 @@ CREATE TABLE IF NOT EXISTS consents (
 );
 CREATE INDEX IF NOT EXISTS idx_consents_client ON consents(client_id, id DESC);
 
+-- Consenso gia' firmato su carta (prima dell'app): solo un'annotazione, il foglio resta in archivio cartaceo.
+CREATE TABLE IF NOT EXISTS paper_consents (
+    id          INTEGER PRIMARY KEY,
+    client_id   INTEGER NOT NULL REFERENCES clients(id),
+    signed_on   TEXT NOT NULL,                -- data della firma sul foglio, YYYY-MM-DD
+    note        TEXT,                         -- es. "raccoglitore 2025"
+    operator    TEXT,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_paper_client ON paper_consents(client_id, signed_on DESC);
+
 -- Check up tecnico della cliente (fototipo, pelo...), compilato dall'operatrice.
 CREATE TABLE IF NOT EXISTS checkups (
     client_id   INTEGER PRIMARY KEY REFERENCES clients(id),

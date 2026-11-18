@@ -154,6 +154,9 @@ def create_app(db_path: str | None = None, api_key: str | None = None) -> FastAP
         c = client_or_404(client_id)
         c["last_consent"] = db.one(
             "SELECT id, signed_at FROM consents WHERE client_id = ? ORDER BY id DESC LIMIT 1", (client_id,))
+        c["paper_consent"] = db.one(
+            "SELECT id, signed_on, note, operator FROM paper_consents WHERE client_id = ? "
+            "ORDER BY signed_on DESC, id DESC LIMIT 1", (client_id,))
         c["polish_history"] = db.query(
             "SELECT id, day, polish, notes, operator FROM polish_records "
             "WHERE client_id = ? ORDER BY day DESC, id DESC", (client_id,))
