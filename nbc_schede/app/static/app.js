@@ -303,11 +303,11 @@ async function laserTab(c) {
           <a class="btn" href="${pdfLink(`api/clients/${c.id}/laser/pdf`)}" target="_blank" rel="noopener">📄 PDF</a></div>
       </div>
       <div class="scroll-x"><table class="sheet">
-        <thead><tr><th>Data</th><th>Zona trattata</th><th>Potenza</th><th>Freq. Hz</th><th>Operatore</th><th class="act"></th></tr></thead>
+        <thead><tr><th>Data</th><th>Zona trattata</th><th>Potenza</th><th>Freq. Hz</th><th>Idratazione</th><th>Operatore</th><th class="act"></th></tr></thead>
         <tbody>${rows.map(t => `<tr class="click swipe" data-id="${t.id}" data-del="/api/laser/${t.id}" data-msg="Trattamento eliminato">
-          <td>${fmtDay(t.day)}</td><td>${esc(t.zone)}</td><td>${powerCell(t)}</td><td>${esc(t.hz)}</td><td>${esc(t.operator)}</td>
+          <td>${fmtDay(t.day)}</td><td>${esc(t.zone)}</td><td>${powerCell(t)}</td><td>${esc(t.hz)}</td><td>${esc(t.hydration)}</td><td>${esc(t.operator)}</td>
           <td class="act"><button class="link">Modifica</button><button class="sdel">Elimina</button></td></tr>`).join("")}
-          ${'<tr class="blank print-only-row"><td></td><td></td><td></td><td></td><td></td><td class="act"></td></tr>'.repeat(blanks)}
+          ${'<tr class="blank print-only-row"><td></td><td></td><td></td><td></td><td></td><td></td><td class="act"></td></tr>'.repeat(blanks)}
         </tbody></table></div>
       ${rows.length ? `<p class="sub hint no-print">Tocca un trattamento per modificarlo, scorrilo verso sinistra per eliminarlo</p>` : `<div class="empty no-print">Nessun trattamento registrato</div>`}
     </div>
@@ -335,6 +335,8 @@ async function laserTab(c) {
         <div><label>Potenza</label><input id="tpow" inputmode="decimal" value="${esc(t.power)}" autocomplete="off">
           <div class="sub" id="tflu" style="margin-top:4px;font-size:14px"></div></div>
         <div><label>Freq. Hz</label><input id="thz" inputmode="decimal" value="${esc(t.hz)}" autocomplete="off"></div>
+        <div><label>Stato di idratazione pelle</label><div class="zones" id="thyd">${["basso", "medio", "alto"].map(h =>
+          `<button type="button" class="zchip${t.hydration === h ? " on" : ""}" data-h="${h}">${h}</button>`).join("")}</div></div>
         <div><label>Operatore</label>${operatorSelect("top", editing ? t.operator : undefined)}</div>
       </div>
       <div class="bar" style="margin-top:14px">
@@ -349,6 +351,11 @@ async function laserTab(c) {
         : (editing && t.fluence ? `Valore registrato allora: ${esc(t.fluence)} J/cm²` : "J/cm² = metà della potenza");
     };
     $("#tpow").oninput = showFluence; showFluence();
+    $$("#thyd .zchip").forEach(b => b.onclick = () => {   // una sola scelta; ritoccandola si toglie
+      const on = !b.classList.contains("on");
+      $$("#thyd .zchip").forEach(x => x.classList.remove("on"));
+      b.classList.toggle("on", on);
+    });
     $$(".zchip[data-z]").forEach(b => b.onclick = () => {
       selected.has(b.dataset.z) ? selected.delete(b.dataset.z) : selected.add(b.dataset.z);
       b.classList.toggle("on");
@@ -364,7 +371,8 @@ async function laserTab(c) {
       const body = { day: val("tday") || null, zone, power: val("tpow") || null,
                      // scheda vecchia senza potenza: si conserva il valore J/cm² inserito allora
                      fluence: !val("tpow") && editing ? (t.fluence || null) : null,
-                     hz: val("thz") || null, operator: val("top") || null };
+                     hz: val("thz") || null, operator: val("top") || null,
+                     hydration: $("#thyd .zchip.on")?.dataset.h || null };
       if (!body.zone) throw new Error("Scegli almeno una zona trattata");
       if (!editing && !hasConsent(c) &&
           !confirm("La cliente non ha ancora firmato il modulo privacy e consenso. Registrare comunque il trattamento?")) return;

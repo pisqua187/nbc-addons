@@ -367,7 +367,7 @@ def build_router(db: Database, now: Callable[[], datetime], consents_dir: str, a
         c = db.one("SELECT id, name, birth_date FROM clients WHERE id = ?", (client_id,))
         if not c:
             raise HTTPException(404, "Cliente non trovata")
-        rows = db.query("SELECT day, zone, power, fluence, hz, operator FROM laser_treatments WHERE client_id = ? "
+        rows = db.query("SELECT day, zone, power, fluence, hz, hydration, operator FROM laser_treatments WHERE client_id = ? "
                         "ORDER BY day, id", (client_id,))
         cu = db.one("SELECT data FROM checkups WHERE client_id = ?", (client_id,))
         name = f"Diario_{_slug(c['name'])}.pdf"

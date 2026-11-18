@@ -35,6 +35,7 @@ class TreatmentIn(BaseModel):
     power: str | None = Field(default=None, max_length=20)    # Potenza impostata sull'apparecchio
     fluence: str | None = Field(default=None, max_length=20)  # J/cm²: calcolato = potenza / 2 (vecchie schede: inserito a mano)
     hz: str | None = Field(default=None, max_length=20)       # Freq. Hz
+    hydration: str | None = Field(default=None, pattern="^(basso|medio|alto)$")  # idratazione pelle
     operator: str | None = Field(default=None, max_length=60)
 
 
@@ -74,7 +75,7 @@ def build_router(db: Database, today: Callable[[], date]) -> APIRouter:
                 raise HTTPException(422, "Potenza: valore non valido")
             power, fluence = _num(p), _num(p / 2)   # J/cm² = metà della potenza
         return ((body.day or today()).isoformat(), zone, power, fluence, _clean(body.hz),
-                _clean(body.operator))
+                body.hydration, _clean(body.operator))
 
     @r.get("/api/clients/{client_id}/laser")
     def client_treatments(client_id: int):
@@ -85,14 +86,16 @@ def build_router(db: Database, today: Callable[[], date]) -> APIRouter:
         if not db.one("SELECT 1 FROM clients WHERE id = ?", (client_id,)):
             raise HTTPException(404, "Cliente non trovata")
         cur = db.conn.execute(
-            "INSERT INTO laser_treatments(client_id, day, zone, power, fluence, hz, operator) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO laser_treatments(client_id, day, zone, power, fluence, hz, hydration, operator) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (client_id, *values(body)))
         return db.one("SELECT * FROM laser_treatments WHERE id = ?", (cur.lastrowid,))
 
     @r.put("/api/laser/{treatment_id}")
     def update_treatment(treatment_id: int, body: TreatmentIn):
         cur = db.conn.execute(
-            "UPDATE laser_treatments SET day = ?, zone = ?, power = ?, fluence = ?, hz = ?, operator = ? WHERE id = ?",
+            "UPDATE laser_treatments SET day = ?, zone = ?, power = ?, fluence = ?, hz = ?, hydration = ?, "
+            "operator = ? WHERE id = ?",
             (*values(body), treatment_id))
         if cur.rowcount == 0:
             raise HTTPException(404, "Trattamento non trovato")

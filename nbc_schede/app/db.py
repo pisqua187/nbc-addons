@@ -115,6 +115,9 @@ class Database:
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(laser_treatments)")}
         if "power" not in cols:
             self.conn.execute("ALTER TABLE laser_treatments ADD COLUMN power TEXT")
+        # 1.7.0: stato di idratazione della pelle alla seduta (basso / medio / alto)
+        if "hydration" not in cols:
+            self.conn.execute("ALTER TABLE laser_treatments ADD COLUMN hydration TEXT")
         # Operatrici di partenza. INSERT OR IGNORE: una tolta dalle Impostazioni resta tolta.
         self.conn.executemany("INSERT OR IGNORE INTO operators(name) VALUES (?)",
                               [(n,) for n in DEFAULT_OPERATORS])
