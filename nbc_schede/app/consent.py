@@ -204,7 +204,30 @@ def build_router(db: Database, now: Callable[[], datetime], consents_dir: str, a
         pending = db.one("SELECT COUNT(*) AS n, MAX(copy_error) AS err FROM consents WHERE copied_at IS NULL")
         return {"archive_dir": archive_dir, "archive_ok": bool(archive and archive.is_dir()),
                 "pending": pending["n"], "error": pending["err"],
-                "total": db.one("SELECT COUNT(*) AS n FROM consents")["n"]}
+                "total": db.one("SELECT COUNT(*) AS n FROM consents")["n"], "diagnosi": diagnose()}
+
+    def diagnose() -> list[dict]:
+        """Per ogni livello del percorso: esiste? e cosa c'e' dentro l'ultimo livello raggiunto.
+        Serve a capire dalle Impostazioni dove si blocca il collegamento al Synology."""
+        if not archive:
+            return []
+        out, cur = [], Path("/")
+        for part in archive.parts[1:]:
+            cur = cur / part
+            try:
+                ok = cur.is_dir()
+            except OSError:
+                ok = False
+            out.append({"path": str(cur), "ok": ok})
+            if not ok:
+                parent = cur.parent
+                try:
+                    inside = sorted(x.name for x in parent.iterdir() if x.is_dir())[:30]
+                except OSError as e:
+                    inside = [f"(non leggibile: {e.strerror})"]
+                out[-1]["dentro_al_livello_sopra"] = inside
+                break
+        return out
 
     @r.get("/api/consents/{consent_id}")
     def consent_detail(consent_id: int):

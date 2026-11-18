@@ -266,6 +266,9 @@ async function archiveCard(el) {
     <p class="sub">Cartella: <b>${esc(st.archive_dir || "non impostata")}</b> ·
       ${st.archive_ok ? `<span style="color:var(--ok)">raggiungibile</span>` : `<span style="color:var(--err)">NON raggiungibile</span>`}<br>
       Moduli firmati: <b>${st.total}</b>${st.pending ? ` · <span style="color:var(--err)">${st.pending} da copiare</span>${st.error ? " (" + esc(st.error) + ")" : ""}` : " · tutti copiati"}</p>
+    ${!st.archive_ok && st.diagnosi?.length ? `<p class="sub" style="margin-bottom:4px"><b>Diagnosi del percorso:</b></p>
+      <div style="font-size:14px;font-family:ui-monospace,monospace">${st.diagnosi.map(d => `<div>${d.ok ? "✅" : "❌"} ${esc(d.path)}${
+        d.dentro_al_livello_sopra ? `<div class="sub" style="margin-left:24px">cartelle trovate al livello sopra: ${d.dentro_al_livello_sopra.length ? d.dentro_al_livello_sopra.map(esc).join(", ") : "(nessuna)"}</div>` : ""}</div>`).join("")}</div>` : ""}
     ${st.pending ? `<button class="primary" id="archSync">Riprova la copia</button>` : ""}`;
   $("#archSync")?.addEventListener("click", safe(async () => {
     const r = await post("/api/consents/sync", {});
