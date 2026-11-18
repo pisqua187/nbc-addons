@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from .db import Database
 from .importer import import_clients
 from .laser import build_router
+from . import consent
 
 log = logging.getLogger("salone")
 TZ = ZoneInfo(os.getenv("TZ_NAME", "Europe/Rome"))
@@ -74,8 +75,8 @@ def create_app(db_path: str | None = None, api_key: str | None = None) -> FastAP
     db = Database(db_path or os.getenv("DB_PATH", "data/salone.db"))
     key = api_key if api_key is not None else os.getenv("API_KEY", "")
 
-    def check_key(x_api_key: str = Header(default="")):
-        if key and not secrets.compare_digest(x_api_key, key):
+    def check_key(x_api_key: str = Header(default=""), key_q: str = Query(default="", alias="key")):
+        if key and not (secrets.compare_digest(x_api_key, key) or secrets.compare_digest(key_q, key)):
             raise HTTPException(401, "Chiave di accesso mancante o errata")
 
     app = FastAPI(title="Salone")
@@ -86,9 +87,10 @@ def create_app(db_path: str | None = None, api_key: str | None = None) -> FastAP
     @app.get("/")
     def index():
         # ?v=<data modifica> obbliga Safari a scaricare app.js nuovo dopo ogni aggiornamento
-        v = int((STATIC / "app.js").stat().st_mtime)
+        v = max(int((STATIC / f).stat().st_mtime) for f in ("app.js", "modulo.js"))
         html = (STATIC / "index.html").read_text(encoding="utf-8").replace(
             '"static/app.js"', f'"static/app.js?v={v}"').replace(
+            '"static/modulo.js"', f'"static/modulo.js?v={v}"').replace(
             "__DASHBOARD__", html_escape(os.getenv("DASHBOARD_URL", "/"), quote=True))
         return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
@@ -150,6 +152,8 @@ def create_app(db_path: str | None = None, api_key: str | None = None) -> FastAP
     @app.get("/api/clients/{client_id}", dependencies=[api])
     def client_detail(client_id: int):
         c = client_or_404(client_id)
+        c["last_consent"] = db.one(
+            "SELECT id, signed_at FROM consents WHERE client_id = ? ORDER BY id DESC LIMIT 1", (client_id,))
         c["polish_history"] = db.query(
             "SELECT id, day, polish, notes, operator FROM polish_records "
             "WHERE client_id = ? ORDER BY day DESC, id DESC", (client_id,))
@@ -190,6 +194,16 @@ def create_app(db_path: str | None = None, api_key: str | None = None) -> FastAP
             raise HTTPException(422, str(e))
 
     app.include_router(build_router(db, today), dependencies=[api])
+
+    consents_dir, archive_dir = consent.default_dirs()
+    consent_router = consent.build_router(db, lambda: datetime.now(TZ), consents_dir, archive_dir)
+    app.include_router(consent_router, dependencies=[api])
+    try:
+        res = consent_router.sync_pending()
+        if res["pending"]:
+            log.warning("Moduli non ancora copiati sul Synology: %s (%s)", res["pending"], res["error"])
+    except Exception:  # l'avvio non deve mai fallire per il Synology
+        log.exception("Copia dei moduli sul Synology non riuscita")
     return app
 
 

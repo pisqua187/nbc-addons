@@ -63,10 +63,13 @@ const routes = [
   [/^#\/c\/(\d+)\/laser$/, (id) => clientView(+id, "laser")],
   [/^#\/c\/(\d+)\/modifica$/, (id) => clientForm(+id)],
   [/^#\/impostazioni$/, settingsView],
+  [/^#\/c\/(\d+)\/modulo$/, (id) => consentFormView(+id)],
+  [/^#\/modulo\/(\d+)$/, (id) => consentDetailView(+id)],
 ];
 let depth = 0;
 async function router() {
   const h = location.hash || "#/";
+  document.body.classList.toggle("kiosk", /\/modulo$/.test(h)); // modulo da firmare: niente menu
   $("#back").hidden = h === "#/" || h === "";
   window.scrollTo(0, 0);
   for (const [re, fn] of routes) {
@@ -179,6 +182,11 @@ async function clientView(id, tab) {
         <b style="font-size:20px">${esc(c.name)}</b> <span class="pencil">✎</span>
         <div class="sub">${c.birth_date ? `${fmtDay(c.birth_date)} (${age(c.birth_date)} anni)` : "Data di nascita non indicata"} · ${c.phone ? esc(c.phone) : "nessun cellulare"}${c.notes ? " · " + esc(c.notes) : ""}</div></a>
       <button id="switchC">⇄ Cambia cliente</button></div>
+      <div class="bar consent-line ${c.last_consent ? "ok" : "missing"}">
+        <span class="grow">${c.last_consent
+          ? `✅ Modulo privacy firmato il ${fmtDay(c.last_consent.signed_at.slice(0, 10))} · <a href="#/modulo/${c.last_consent.id}">vedi</a>`
+          : "⚠️ Modulo privacy e consenso non ancora firmato"}</span>
+        <a class="btn ${c.last_consent ? "" : "pinkbtn"}" href="#/c/${id}/modulo">📝 ${c.last_consent ? "Nuovo modulo" : "Fai firmare il modulo"}</a></div>
       <div id="switchBox" hidden style="margin-top:12px">
         <input id="sq" class="search" type="search" placeholder="Cerca un'altra cliente" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
         <div id="sres"></div></div></div>
@@ -198,7 +206,7 @@ async function clientView(id, tab) {
       <span class="grow"><b>${esc(r.name)}</b>${r.phone ? `<br><span class="sub">${esc(r.phone)}</span>` : ""}</span><span class="sub">›</span></a>`).join("")
       || `<div class="empty">Nessuna cliente trovata</div>`;
   }), 180);
-  if (tab === "smalti") await polishTab(c); else await laserTab(c);
+  if (tab === "smalti") await polishTab(c); else { await laserTab(c); await laserExtras(c); }
   swipeToDelete($("#tab"));
 }
 
@@ -332,6 +340,8 @@ async function laserTab(c) {
       const body = { day: val("tday") || null, zone, fluence: val("tflu") || null,
                      hz: val("thz") || null, operator: val("top") || null };
       if (!body.zone) throw new Error("Scegli almeno una zona trattata");
+      if (!editing && !c.last_consent &&
+          !confirm("La cliente non ha ancora firmato il modulo privacy e consenso. Registrare comunque il trattamento?")) return;
       if (editing) await post("/api/laser/" + t.id, body, "PUT");
       else await post(`/api/clients/${c.id}/laser`, body);
       toast(editing ? "Trattamento aggiornato" : "Trattamento registrato"); router();
@@ -361,6 +371,7 @@ async function settingsView() {
       <div class="bar" style="margin-top:10px"><input id="opname" class="grow" placeholder="Nome operatrice" style="flex:1" autocapitalize="words">
         <button class="primary" id="opadd">Aggiungi</button></div>
     </div>
+    <div class="card" id="archCard"></div>
     <div class="card"><h2>Anagrafica clienti</h2>
       <p class="sub">In archivio: <b>${st.clients}</b> clienti. Per aggiornarla esporta le clienti da Vaniglia Pro in CSV e caricalo qui:
         le clienti esistenti si aggiornano, le nuove si aggiungono, storico smalti e schede restano intatti.
@@ -371,6 +382,7 @@ async function settingsView() {
   $$("[data-op]").forEach(b => b.onclick = safe(async () => {
     await api("/api/operators/" + b.dataset.op, { method: "DELETE" }); toast("Tolta"); settingsView();
   }));
+  await archiveCard($("#archCard"));
   $("#opadd").onclick = safe(async () => {
     if (!val("opname")) return;
     await post("/api/operators", { name: val("opname") }); toast("Aggiunta"); settingsView();

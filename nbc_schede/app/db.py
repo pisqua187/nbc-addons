@@ -50,6 +50,32 @@ CREATE TABLE IF NOT EXISTS laser_treatments (
 );
 CREATE INDEX IF NOT EXISTS idx_laser_client ON laser_treatments(client_id, day);
 
+-- Modulo privacy + consenso informato firmato sull'iPad. Non si modifica: se cambia, se ne firma uno nuovo.
+CREATE TABLE IF NOT EXISTS consents (
+    id                INTEGER PRIMARY KEY,
+    client_id         INTEGER NOT NULL REFERENCES clients(id),
+    signed_at         TEXT NOT NULL,          -- ora locale ISO, es. 2026-11-18T10:32:05+01:00
+    text_version      TEXT NOT NULL,          -- versione dei testi letti (app/texts.py)
+    data              TEXT NOT NULL,          -- JSON: anagrafica, stato di salute, conferme
+    signature         BLOB NOT NULL,          -- PNG della firma
+    signature_tutore  BLOB,                   -- PNG firma genitore/tutore (solo minorenni)
+    fingerprint       TEXT NOT NULL,          -- SHA-256 di dati + firme, stampato sul PDF
+    device            TEXT,                   -- browser/dispositivo usato per firmare
+    pdf_file          TEXT NOT NULL,          -- nome del PDF nella cartella consensi
+    pdf_sha256        TEXT,
+    copied_at         TEXT,                   -- quando e' stato copiato sul Synology (NULL = in sospeso)
+    copy_error        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_consents_client ON consents(client_id, id DESC);
+
+-- Check up tecnico della cliente (fototipo, pelo...), compilato dall'operatrice.
+CREATE TABLE IF NOT EXISTS checkups (
+    client_id   INTEGER PRIMARY KEY REFERENCES clients(id),
+    data        TEXT NOT NULL,                -- JSON
+    operator    TEXT,
+    updated_at  TEXT NOT NULL
+);
+
 """
 
 
