@@ -210,8 +210,8 @@ def build_diary_pdf(client: dict, rows: list[dict], checkup: dict) -> bytes:
     pdf.set_margins(14, 12, 14)
     pdf.set_auto_page_break(True, margin=14)
     pdf.set_title(_t(f"Diario trattamenti - {client['name']}"))
-    widths = [32, 110, 40, 30, 57]
-    heads = ["Data", "Zona trattata", "Freq. J/cm2", "Freq. Hz", "Operatore"]
+    widths = [32, 102, 48, 30, 57]
+    heads = ["Data", "Zona trattata", "Potenza (J/cm2)", "Freq. Hz", "Operatore"]
 
     def page_head():
         pdf.add_page()
@@ -237,14 +237,16 @@ def build_diary_pdf(client: dict, rows: list[dict], checkup: dict) -> bytes:
         pdf.set_text_color(*INK); pdf.set_font("Helvetica", "", 10)
 
     page_head()
-    blank = {"day": None, "zone": "", "fluence": "", "hz": "", "operator": ""}
+    blank = {"day": None, "zone": "", "power": "", "fluence": "", "hz": "", "operator": ""}
     lines = list(rows) + [blank] * max(0, 15 - len(rows))
     for i, r in enumerate(lines):
         if pdf.get_y() + 8 > pdf.h - 14:
             page_head()
         fill = i % 2 == 1
         pdf.set_fill_color(246, 248, 252)
-        vals = [_day(r.get("day")), r.get("zone") or "", r.get("fluence") or "", r.get("hz") or "", r.get("operator") or ""]
+        pw = (f"{r['power']} ({r.get('fluence')} J/cm2)" if r.get("power")
+              else (f"{r['fluence']} J/cm2" if r.get("fluence") else ""))
+        vals = [_day(r.get("day")), r.get("zone") or "", pw, r.get("hz") or "", r.get("operator") or ""]
         for w, v in zip(widths, vals):
             pdf.cell(w, 8, _t(v), border=1, fill=fill)
         pdf.ln(8)

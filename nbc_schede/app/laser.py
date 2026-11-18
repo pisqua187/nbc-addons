@@ -1,6 +1,7 @@
 """Fotoepilazione: trattamenti per cliente, e lista operatrici."""
 
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from typing import Callable
 
 from fastapi import APIRouter, HTTPException
@@ -11,6 +12,12 @@ from .db import Database
 # Zone da selezionare sull'iPad (in ordine alfabetico). Oltre a queste c'e' "Personalizzato".
 ZONES = sorted(["Inguine", "Inguine parziale", "Ascelle", "Schiena", "Petto", "Addome", "Braccia",
                 "Mento", "Viso", "Baffetti", "Gamba intera", "Mezza gamba", "Glutei"], key=str.lower)
+
+
+def _num(d: Decimal) -> str:
+    """12.50 -> '12,5'; 25 -> '25' (virgola italiana, senza zeri inutili)."""
+    s = format(d.normalize(), "f")
+    return s.replace(".", ",")
 
 
 def _clean(v: str | None) -> str | None:
@@ -25,7 +32,8 @@ class OperatorIn(BaseModel):
 class TreatmentIn(BaseModel):
     day: date | None = None                               # data del trattamento (default oggi)
     zone: str = Field(min_length=1, max_length=400)       # zone trattate, es. "Ascelle, Inguine"
-    fluence: str | None = Field(default=None, max_length=20)  # Freq. J/cm² (testo: accetta "12,5")
+    power: str | None = Field(default=None, max_length=20)    # Potenza impostata sull'apparecchio
+    fluence: str | None = Field(default=None, max_length=20)  # J/cm²: calcolato = potenza / 2 (vecchie schede: inserito a mano)
     hz: str | None = Field(default=None, max_length=20)       # Freq. Hz
     operator: str | None = Field(default=None, max_length=60)
 
@@ -56,7 +64,16 @@ def build_router(db: Database, today: Callable[[], date]) -> APIRouter:
         zone = _clean(body.zone)
         if not zone:
             raise HTTPException(422, "Indica la zona trattata")
-        return ((body.day or today()).isoformat(), zone, _clean(body.fluence), _clean(body.hz),
+        power, fluence = _clean(body.power), _clean(body.fluence)
+        if power:
+            try:
+                p = Decimal(power.replace(",", "."))
+            except InvalidOperation:
+                raise HTTPException(422, "Potenza: scrivi un numero, es. 25 oppure 24,5")
+            if p <= 0 or p > 1000:
+                raise HTTPException(422, "Potenza: valore non valido")
+            power, fluence = _num(p), _num(p / 2)   # J/cm² = metà della potenza
+        return ((body.day or today()).isoformat(), zone, power, fluence, _clean(body.hz),
                 _clean(body.operator))
 
     @r.get("/api/clients/{client_id}/laser")
@@ -68,14 +85,14 @@ def build_router(db: Database, today: Callable[[], date]) -> APIRouter:
         if not db.one("SELECT 1 FROM clients WHERE id = ?", (client_id,)):
             raise HTTPException(404, "Cliente non trovata")
         cur = db.conn.execute(
-            "INSERT INTO laser_treatments(client_id, day, zone, fluence, hz, operator) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO laser_treatments(client_id, day, zone, power, fluence, hz, operator) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (client_id, *values(body)))
         return db.one("SELECT * FROM laser_treatments WHERE id = ?", (cur.lastrowid,))
 
     @r.put("/api/laser/{treatment_id}")
     def update_treatment(treatment_id: int, body: TreatmentIn):
         cur = db.conn.execute(
-            "UPDATE laser_treatments SET day = ?, zone = ?, fluence = ?, hz = ?, operator = ? WHERE id = ?",
+            "UPDATE laser_treatments SET day = ?, zone = ?, power = ?, fluence = ?, hz = ?, operator = ? WHERE id = ?",
             (*values(body), treatment_id))
         if cur.rowcount == 0:
             raise HTTPException(404, "Trattamento non trovato")

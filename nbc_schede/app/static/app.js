@@ -55,6 +55,16 @@ function operatorSelect(id, selected) {
     `<option${n === sel ? " selected" : ""}>${esc(n)}</option>`).join("")}</select>`;
 }
 
+/* ---------- potenza e J/cm² (J/cm² = metà della potenza) ---------- */
+function halfPower(v) {
+  const s = String(v ?? "").trim().replace(",", ".");
+  if (!/^\d+(\.\d+)?$/.test(s)) return "";
+  return String(Math.round(parseFloat(s) / 2 * 1000) / 1000).replace(".", ",");
+}
+const powerCell = (t) => t.power
+  ? `${esc(t.power)} <span class="sub" style="font-size:13px">→ ${esc(t.fluence)} J/cm²</span>`
+  : (t.fluence ? `${esc(t.fluence)} J/cm²` : "");
+
 /* ---------- router ---------- */
 const routes = [
   [/^#?\/?$/, homeView],
@@ -293,9 +303,9 @@ async function laserTab(c) {
           <a class="btn" href="${pdfLink(`api/clients/${c.id}/laser/pdf`)}" target="_blank" rel="noopener">📄 PDF</a></div>
       </div>
       <div class="scroll-x"><table class="sheet">
-        <thead><tr><th>Data</th><th>Zona trattata</th><th>Freq. J/cm²</th><th>Freq. Hz</th><th>Operatore</th><th class="act"></th></tr></thead>
+        <thead><tr><th>Data</th><th>Zona trattata</th><th>Potenza</th><th>Freq. Hz</th><th>Operatore</th><th class="act"></th></tr></thead>
         <tbody>${rows.map(t => `<tr class="click swipe" data-id="${t.id}" data-del="/api/laser/${t.id}" data-msg="Trattamento eliminato">
-          <td>${fmtDay(t.day)}</td><td>${esc(t.zone)}</td><td>${esc(t.fluence)}</td><td>${esc(t.hz)}</td><td>${esc(t.operator)}</td>
+          <td>${fmtDay(t.day)}</td><td>${esc(t.zone)}</td><td>${powerCell(t)}</td><td>${esc(t.hz)}</td><td>${esc(t.operator)}</td>
           <td class="act"><button class="link">Modifica</button><button class="sdel">Elimina</button></td></tr>`).join("")}
           ${'<tr class="blank print-only-row"><td></td><td></td><td></td><td></td><td></td><td class="act"></td></tr>'.repeat(blanks)}
         </tbody></table></div>
@@ -304,7 +314,7 @@ async function laserTab(c) {
     <div class="card no-print" id="tForm"></div>`;
   printButton($("#print"), () => post(`/api/clients/${c.id}/laser/print`, { copies: 1 }), "Scheda inviata alla stampante");
 
-  const newT = { zone: last.zone, fluence: last.fluence, hz: last.hz };
+  const newT = { zone: last.zone, power: last.power, hz: last.hz };
   const form = (t) => {
     const editing = !!t.id;
     $$("tr.editing").forEach(r => r.classList.remove("editing"));
@@ -322,7 +332,8 @@ async function laserTab(c) {
           <div class="zones">${zones.map(z => `<button type="button" class="zchip${selected.has(z) ? " on" : ""}" data-z="${esc(z)}">${esc(z)}</button>`).join("")}
             <button type="button" class="zchip${custom ? " on" : ""}" id="zcustom">✎ Personalizzato</button></div>
           <input id="tzcustom" placeholder="Scrivi la zona" value="${esc(custom)}" autocomplete="off"${custom ? "" : " hidden"} style="margin-top:8px"></div>
-        <div><label>Freq. J/cm²</label><input id="tflu" inputmode="decimal" value="${esc(t.fluence)}" autocomplete="off"></div>
+        <div><label>Potenza</label><input id="tpow" inputmode="decimal" value="${esc(t.power)}" autocomplete="off">
+          <div class="sub" id="tflu" style="margin-top:4px;font-size:14px"></div></div>
         <div><label>Freq. Hz</label><input id="thz" inputmode="decimal" value="${esc(t.hz)}" autocomplete="off"></div>
         <div><label>Operatore</label>${operatorSelect("top", editing ? t.operator : undefined)}</div>
       </div>
@@ -331,6 +342,13 @@ async function laserTab(c) {
         ${editing ? `<button id="tcancel">Annulla</button><span class="grow"></span><button class="danger" id="tdel">Elimina</button>` : ""}
       </div>`;
     $("#top").onchange = () => store.set("salone.operator", $("#top").value);
+    const showFluence = () => {
+      const f = halfPower(val("tpow"));
+      $("#tflu").innerHTML = f ? `= <b>${f} J/cm²</b> (metà della potenza)`
+        : val("tpow") ? `<span style="color:var(--err)">scrivi un numero, es. 25 o 24,5</span>`
+        : (editing && t.fluence ? `Valore registrato allora: ${esc(t.fluence)} J/cm²` : "J/cm² = metà della potenza");
+    };
+    $("#tpow").oninput = showFluence; showFluence();
     $$(".zchip[data-z]").forEach(b => b.onclick = () => {
       selected.has(b.dataset.z) ? selected.delete(b.dataset.z) : selected.add(b.dataset.z);
       b.classList.toggle("on");
@@ -343,7 +361,9 @@ async function laserTab(c) {
     $("#tsave").onclick = safe(async () => {
       const customOn = $("#zcustom").classList.contains("on") && val("tzcustom");
       const zone = [...zones.filter(z => selected.has(z)), ...(customOn ? [val("tzcustom")] : [])].join(", ");
-      const body = { day: val("tday") || null, zone, fluence: val("tflu") || null,
+      const body = { day: val("tday") || null, zone, power: val("tpow") || null,
+                     // scheda vecchia senza potenza: si conserva il valore J/cm² inserito allora
+                     fluence: !val("tpow") && editing ? (t.fluence || null) : null,
                      hz: val("thz") || null, operator: val("top") || null };
       if (!body.zone) throw new Error("Scegli almeno una zona trattata");
       if (!editing && !hasConsent(c) &&

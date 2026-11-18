@@ -111,6 +111,10 @@ class Database:
             self._target, self._uri = path, False
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.executescript(SCHEMA)
+        # 1.6.0: la potenza si inserisce, i J/cm2 (fluence) si calcolano = potenza / 2
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(laser_treatments)")}
+        if "power" not in cols:
+            self.conn.execute("ALTER TABLE laser_treatments ADD COLUMN power TEXT")
         # Operatrici di partenza. INSERT OR IGNORE: una tolta dalle Impostazioni resta tolta.
         self.conn.executemany("INSERT OR IGNORE INTO operators(name) VALUES (?)",
                               [(n,) for n in DEFAULT_OPERATORS])
