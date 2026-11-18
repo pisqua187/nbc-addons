@@ -19,6 +19,8 @@ os.environ["API_KEY"] = opts.get("api_key") or ""
 # cartella del Synology (archivio di rete collegato a Home Assistant) dove copiare i moduli firmati
 os.environ["ARCHIVE_DIR"] = (opts.get("archivio_consensi") or "").strip()
 os.environ.setdefault("CONSENTS_DIR", "/data/consensi")
+# stampante di rete (IPP): indirizzo IP oppure ipp://indirizzo/percorso
+os.environ["PRINTER"] = (opts.get("stampante") or "").strip()
 # indirizzo della dashboard per il tasto "Dashboard", es. /dashboard-nbc/0
 os.environ["DASHBOARD_URL"] = (opts.get("dashboard_url") or "/").strip() or "/"
 

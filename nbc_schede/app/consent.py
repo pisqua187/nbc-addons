@@ -20,12 +20,15 @@ from pathlib import Path
 from typing import Callable
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from . import texts
 from .db import Database
-from .pdf import build_pdf
+from .pdf import build_diary_pdf, build_pdf
+from .printing import PrinterError, print_pdf, printer_info
+
+PAGE_RE = re.compile(rb"/Type\s*/Page(?![a-zA-Z])")  # conta le pagine di un PDF
 
 log = logging.getLogger("salone.consensi")
 MAX_SIGNATURE_BYTES = 600_000
@@ -50,6 +53,16 @@ class ConsentIn(BaseModel):
     tutore: str | None = Field(default=None, max_length=120)
     signature: str = Field(max_length=MAX_SIGNATURE_BYTES * 2)
     signature_tutore: str | None = Field(default=None, max_length=MAX_SIGNATURE_BYTES * 2)
+
+
+class PrintIn(BaseModel):
+    copies: int = Field(default=1, ge=1, le=10)
+
+
+class PrintAllIn(BaseModel):
+    dal: date | None = None      # data firma, inclusa
+    al: date | None = None       # data firma, inclusa
+    dry_run: bool = True         # True = conta soltanto, non stampa
 
 
 class CheckupIn(BaseModel):
@@ -252,6 +265,95 @@ def build_router(db: Database, now: Callable[[], datetime], consents_dir: str, a
     @r.post("/api/consents/sync")
     def consents_sync():
         return sync_pending()
+
+    # --- stampa sulla stampante di rete ---------------------------------------
+    printer = os.getenv("PRINTER", "").strip()
+
+    def send(pdf: bytes, name: str, copies: int = 1) -> dict:
+        try:
+            return print_pdf(printer, pdf, name, copies)
+        except PrinterError as e:
+            raise HTTPException(502, str(e))
+
+    def consent_bytes(consent_id: int) -> tuple[bytes, str]:
+        row = db.one("SELECT pdf_file FROM consents WHERE id = ?", (consent_id,))
+        if not row or not (store / row["pdf_file"]).is_file():
+            raise HTTPException(404, "Modulo non trovato")
+        return (store / row["pdf_file"]).read_bytes(), row["pdf_file"]
+
+    def print_many(ids: list[int]) -> dict:
+        done = 0
+        for i in ids:
+            pdf, name = consent_bytes(i)
+            try:
+                print_pdf(printer, pdf, name)
+            except PrinterError as e:
+                raise HTTPException(502, f"{e}. Stampati {done} moduli su {len(ids)}.")
+            done += 1
+        return {"printed": done}
+
+    @r.get("/api/printer")
+    def get_printer():
+        try:
+            return {"address": printer, **printer_info(printer)}
+        except PrinterError as e:
+            return {"address": printer, "error": str(e)}
+
+    @r.post("/api/consents/{consent_id}/print")
+    def print_consent(consent_id: int, body: PrintIn):
+        pdf, name = consent_bytes(consent_id)
+        return send(pdf, name, body.copies)
+
+    @r.post("/api/clients/{client_id}/consents/print")
+    def print_client_consents(client_id: int):
+        client_or_404(client_id)
+        ids = [x["id"] for x in db.query("SELECT id FROM consents WHERE client_id = ? ORDER BY id", (client_id,))]
+        if not ids:
+            raise HTTPException(404, "Nessun modulo firmato da stampare")
+        return print_many(ids)
+
+    @r.post("/api/consents/print-all")
+    def print_all_consents(body: PrintAllIn):
+        """Tutti i moduli dell'archivio (eventualmente in un intervallo di date), in ordine di cognome."""
+        where, params = [], []
+        if body.dal:
+            where.append("substr(signed_at, 1, 10) >= ?"); params.append(body.dal.isoformat())
+        if body.al:
+            where.append("substr(signed_at, 1, 10) <= ?"); params.append(body.al.isoformat())
+        rows = db.query("SELECT id FROM consents" + (" WHERE " + " AND ".join(where) if where else "")
+                        + " ORDER BY json_extract(data, '$.cognome') COLLATE NOCASE, "
+                          "json_extract(data, '$.nome') COLLATE NOCASE, id", params)
+        ids = [x["id"] for x in rows]
+        if body.dry_run:
+            pages = 0
+            for i in ids:  # conta le pagine dai PDF (3 o piu' a modulo)
+                pdf, _ = consent_bytes(i)
+                pages += max(1, len(PAGE_RE.findall(pdf)))
+            return {"count": len(ids), "pages": pages}
+        if not ids:
+            raise HTTPException(404, "Nessun modulo firmato nel periodo scelto")
+        return print_many(ids)
+
+    def diary(client_id: int) -> tuple[bytes, str]:
+        c = db.one("SELECT id, name, birth_date FROM clients WHERE id = ?", (client_id,))
+        if not c:
+            raise HTTPException(404, "Cliente non trovata")
+        rows = db.query("SELECT day, zone, fluence, hz, operator FROM laser_treatments WHERE client_id = ? "
+                        "ORDER BY day, id", (client_id,))
+        cu = db.one("SELECT data FROM checkups WHERE client_id = ?", (client_id,))
+        name = f"Diario_{_slug(c['name'])}.pdf"
+        return build_diary_pdf(c, rows, json.loads(cu["data"]) if cu else {}), name
+
+    @r.get("/api/clients/{client_id}/laser/pdf")
+    def diary_pdf(client_id: int):
+        pdf, name = diary(client_id)
+        return Response(pdf, media_type="application/pdf",
+                        headers={"Content-Disposition": f'inline; filename="{name}"'})
+
+    @r.post("/api/clients/{client_id}/laser/print")
+    def diary_print(client_id: int, body: PrintIn):
+        pdf, name = diary(client_id)
+        return send(pdf, name, body.copies)
 
     # --- check up tecnico (compilato dall'operatrice) ---------------------------
     @r.get("/api/clients/{client_id}/checkup")

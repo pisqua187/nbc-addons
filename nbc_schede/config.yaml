@@ -1,5 +1,5 @@
 name: "NBC Schede Tecniche"
-version: "1.3.1"
+version: "1.4.0"
 slug: "nbc_schede"
 description: "Storico smalti e schede di fotoepilazione delle clienti New Body Center"
 arch:
@@ -21,10 +21,12 @@ options:
   api_key: ""
   dashboard_url: "/nbc-studio/home"
   archivio_consensi: "/share/documenti_importanti/Clienti/Consensi"
+  stampante: "192.168.40.23"
 schema:
   api_key: password?
   dashboard_url: str
   archivio_consensi: str?
+  stampante: str?
 # Porta diretta disattivata: si entra solo da Home Assistant (login richiesto).
 # Se un giorno serve l'accesso diretto, attivala dalla scheda "Rete" dell'add-on e imposta api_key.
 ports:

@@ -3,6 +3,20 @@
    Usa gli aiuti definiti in app.js ($, api, post, esc, toast...): queste funzioni vengono chiamate
    solo dopo che app.js e' stato caricato. */
 
+/* link diretti ai PDF (con la chiave se si usa la porta diretta con API_KEY) */
+const pdfLink = (path) => path + (apiKey ? (path.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(apiKey) : "");
+
+/* pulsante di stampa: disattivato mentre invia, messaggio chiaro se la stampante non risponde */
+function printButton(el, send, okMsg) {
+  if (!el) return;
+  const label = el.innerHTML;
+  el.onclick = safe(async () => {
+    el.disabled = true; el.innerHTML = "⏳ Invio alla stampante…";
+    try { const r = await send(); toast(typeof okMsg === "function" ? okMsg(r) : okMsg); }
+    finally { el.disabled = false; el.innerHTML = label; }
+  });
+}
+
 let textsCache = null;
 async function consentTexts() { return textsCache ??= await api("/api/texts"); }
 const ageAt = (iso) => { if (!iso) return null; const b = new Date(iso + "T12:00"), n = new Date();
@@ -178,7 +192,10 @@ async function consentFormView(id) {
         <div style="font-size:56px">✅</div><h2 style="font-size:26px">Grazie, ${esc(val("fnome") || "")}!</h2>
         <p style="font-size:19px">Il modulo è stato firmato. Puoi restituire l'iPad all'operatrice.</p>
         ${res.archive_error ? `<p class="sub" style="color:var(--err)">Per l'operatrice: modulo salvato, ma la copia sul Synology è in sospeso (${esc(res.archive_error)}).</p>` : ""}
-        <button class="primary" id="kdone" style="margin-top:16px">Torna alla scheda (operatrice)</button></div>`;
+        <div class="bar" style="justify-content:center;margin-top:16px">
+          <button id="kprint">🖨 Stampa una copia per la cliente</button>
+          <button class="primary" id="kdone">Torna alla scheda (operatrice)</button></div></div>`;
+      printButton($("#kprint"), () => post(`/api/consents/${res.id}/print`, { copies: 1 }), "Copia inviata alla stampante");
       onTap($("#kdone"), () => go("#/c/" + id + "/laser"));
     } finally { sending = false; const b = $("#fsend"); if (b) b.disabled = false; }
   }));
@@ -205,9 +222,11 @@ async function consentDetailView(cid) {
       ${m.signature_tutore ? `<label style="margin-top:10px">Firma genitore/tutore</label><img class="sigimg" src="${m.signature_tutore}" alt="firma tutore">` : ""}
       <p class="sub" style="margin-top:12px">Archivio: ${m.copied_at ? `copiato sul Synology il ${fmtDay(m.copied_at.slice(0, 10))}` : `<span style="color:var(--err)">copia sul Synology in sospeso</span>`}
         · file ${esc(m.pdf_file)}<br>Impronta: <span style="font-size:12px">${esc(m.fingerprint)}</span></p>
-      <div class="bar"><a class="btn" href="api/consents/${m.id}/pdf${apiKey ? "?key=" + encodeURIComponent(apiKey) : ""}" target="_blank" rel="noopener">📄 Apri il PDF</a>
+      <div class="bar"><button class="primary" id="mprint">🖨 Stampa</button>
+        <a class="btn" href="${pdfLink(`api/consents/${m.id}/pdf`)}" target="_blank" rel="noopener">📄 Apri il PDF</a>
         <a class="btn" href="#/c/${m.client_id}/laser">Torna alla scheda</a></div>
     </div>`;
+  printButton($("#mprint"), () => post(`/api/consents/${m.id}/print`, { copies: 1 }), "Modulo inviato alla stampante");
 }
 
 /* ---------- scheda fotoepilazione: avviso modulo, check up, moduli firmati ---------- */
@@ -236,13 +255,16 @@ async function laserExtras(c) {
       <div class="bar" style="margin-top:12px"><button class="primary" id="cusave">Salva check up</button>
         <span class="sub">${cu.updated_at ? `Aggiornato il ${fmtDay(cu.updated_at.slice(0, 10))}${cu.operator ? " da " + esc(cu.operator) : ""}` : "Non ancora compilato"}</span></div>
     </div>
-    <div class="card no-print" id="consentsCard"><h2>Moduli privacy firmati</h2>
+    <div class="card no-print" id="consentsCard"><div class="bar" style="margin-bottom:8px"><h2 class="grow" style="margin:0">Moduli privacy firmati</h2>
+      ${list.length ? `<button id="printAllClient">🖨 Stampa tutti${list.length > 1 ? ` (${list.length})` : ""}</button>` : ""}</div>
       ${list.length ? list.map(m => `<a class="row" href="#/modulo/${m.id}"><span class="grow"><b>Modulo n. ${m.id}</b> · firmato il ${fmtDay(m.signed_at.slice(0, 10))}<br>
         <span class="sub">${m.nessuna ? "Nessuna condizione di salute" : esc([...m.health, m.altro].filter(Boolean).join(", ") || "—")}</span></span>
         ${m.copied_at ? "" : `<span class="pill" style="color:var(--err)">copia Synology in sospeso</span>`}<span class="sub">›</span></a>`).join("")
         : `<div class="empty">Nessun modulo firmato</div>`}
     </div>`);
 
+  printButton($("#printAllClient"), () => post(`/api/clients/${c.id}/consents/print`, {}),
+    (r) => `${r.printed} ${r.printed === 1 ? "modulo inviato" : "moduli inviati"} alla stampante`);
   $$("#checkupCard .zchip").forEach(b => b.onclick = () => {
     if (b.dataset.m !== "1") $$(`#checkupCard .zchip[data-k="${b.dataset.k}"]`).forEach(x => { if (x !== b) x.classList.remove("on"); });
     b.classList.toggle("on");
@@ -259,6 +281,19 @@ async function laserExtras(c) {
   });
 }
 
+/* ---------- impostazioni: stampante di rete ---------- */
+async function printerCard(el) {
+  el.innerHTML = `<h2>Stampante</h2><p class="sub">Verifica in corso…</p>`;
+  const p = await api("/api/printer");
+  el.innerHTML = `<h2>Stampante</h2>
+    <p class="sub">Indirizzo: <b>${esc(p.address || "non impostato")}</b> (si cambia nella Configurazione dell'add-on, campo «stampante»)<br>
+    ${p.error ? `<span style="color:var(--err)">${esc(p.error)}</span>`
+      : `<span style="color:var(--ok)">${esc(p.model)} · ${esc(p.state)}</span>${p.message ? " · " + esc(p.message) : ""}<br>
+         ${p.pdf ? "Accetta la stampa diretta dei PDF ✅" : `<span style="color:var(--err)">Non accetta PDF via rete: formati ${esc(p.formats.join(", "))}</span>`}`}</p>
+    <button id="prRetry">Verifica di nuovo</button>`;
+  $("#prRetry").onclick = safe(() => printerCard(el));
+}
+
 /* ---------- impostazioni: archivio moduli sul Synology ---------- */
 async function archiveCard(el) {
   const st = await api("/api/consents/status");
@@ -269,7 +304,24 @@ async function archiveCard(el) {
     ${!st.archive_ok && st.diagnosi?.length ? `<p class="sub" style="margin-bottom:4px"><b>Diagnosi del percorso:</b></p>
       <div style="font-size:14px;font-family:ui-monospace,monospace">${st.diagnosi.map(d => `<div>${d.ok ? "✅" : "❌"} ${esc(d.path)}${
         d.dentro_al_livello_sopra ? `<div class="sub" style="margin-left:24px">cartelle trovate al livello sopra: ${d.dentro_al_livello_sopra.length ? d.dentro_al_livello_sopra.map(esc).join(", ") : "(nessuna)"}</div>` : ""}</div>`).join("")}</div>` : ""}
-    ${st.pending ? `<button class="primary" id="archSync">Riprova la copia</button>` : ""}`;
+    ${st.pending ? `<button class="primary" id="archSync">Riprova la copia</button>` : ""}
+    <h2 style="margin-top:18px">Stampa tutti i moduli</h2>
+    <p class="sub">Stampa i moduli firmati dell'archivio, in ordine di cognome. Lascia le date vuote per stamparli tutti.</p>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,220px))">
+      <div><label>Firmati dal</label><input id="padal" type="date"></div>
+      <div><label>al</label><input id="paal" type="date"></div></div>
+    <div class="bar" style="margin-top:10px"><button id="pacount">🖨 Stampa tutti i moduli</button></div>
+    <div id="pares"></div>`;
+  const range = () => ({ dal: val("padal") || null, al: val("paal") || null });
+  $("#pacount").onclick = safe(async () => {
+    const r = await post("/api/consents/print-all", { ...range(), dry_run: true });
+    if (!r.count) { $("#pares").innerHTML = `<p class="sub">Nessun modulo firmato nel periodo scelto.</p>`; return; }
+    $("#pares").innerHTML = `<p>Verranno stampati <b>${r.count}</b> moduli, circa <b>${r.pages}</b> pagine.</p>
+      <button class="primary" id="pago">Conferma e stampa</button> <button id="pano">Annulla</button>`;
+    $("#pano").onclick = () => { $("#pares").innerHTML = ""; };
+    printButton($("#pago"), () => post("/api/consents/print-all", { ...range(), dry_run: false }),
+      (x) => { $("#pares").innerHTML = ""; return `${x.printed} moduli inviati alla stampante`; });
+  });
   $("#archSync")?.addEventListener("click", safe(async () => {
     const r = await post("/api/consents/sync", {});
     toast(r.error ? r.error : `Copiati ${r.copied} moduli`, !r.error); archiveCard(el);

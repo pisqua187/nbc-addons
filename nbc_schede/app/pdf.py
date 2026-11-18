@@ -190,3 +190,62 @@ def build_pdf(data: dict, sig: bytes, sig_tutore: bytes | None, signed: datetime
     if sig_tutore:
         pdf.signature(sig_tutore, f"Firma del genitore/tutore ({data.get('tutore')})", place_date)
     return bytes(pdf.output())
+
+
+def checkup_summary(cu: dict) -> str:
+    parts = []
+    for key, label, _, _ in texts.CHECKUP:
+        v = cu.get(key)
+        s = ", ".join(v) if isinstance(v, list) else (v or "")
+        if s:
+            if key == "frequenza" and cu.get("frequenza_cad"):
+                s += f" ({cu['frequenza_cad']})"
+            parts.append(f"{label}: {s}")
+    return " - ".join(parts)
+
+
+def build_diary_pdf(client: dict, rows: list[dict], checkup: dict) -> bytes:
+    """Diario trattamenti di fotoepilazione, A4 orizzontale, con righe vuote da compilare a mano."""
+    pdf = FPDF(orientation="L", format="A4")
+    pdf.set_margins(14, 12, 14)
+    pdf.set_auto_page_break(True, margin=14)
+    pdf.set_title(_t(f"Diario trattamenti - {client['name']}"))
+    widths = [32, 110, 40, 30, 57]
+    heads = ["Data", "Zona trattata", "Freq. J/cm2", "Freq. Hz", "Operatore"]
+
+    def page_head():
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 17)
+        pdf.set_text_color(*ACCENT)
+        pdf.cell(0, 9, _t("NEW BODY CENTER  -  DIARIO TRATTAMENTI"), align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+        pdf.set_text_color(*INK)
+        pdf.set_font("Helvetica", "", 9); pdf.set_text_color(*MUTED)
+        pdf.cell(135, 4, _t("Nome e cognome")); pdf.cell(0, 4, _t("Data di nascita"), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "B", 13); pdf.set_text_color(*INK)
+        pdf.cell(135, 7, _t(client["name"]))
+        pdf.cell(0, 7, _t(_day(client.get("birth_date"))), new_x="LMARGIN", new_y="NEXT")
+        summary = checkup_summary(checkup)
+        if summary:
+            pdf.set_font("Helvetica", "", 9)
+            pdf.multi_cell(0, 4.5, _t("Check up: " + summary), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+        pdf.set_fill_color(*ACCENT); pdf.set_text_color(255, 255, 255); pdf.set_font("Helvetica", "B", 10)
+        for w, h in zip(widths, heads):
+            pdf.cell(w, 8, _t(h), border=1, fill=True)
+        pdf.ln(8)
+        pdf.set_text_color(*INK); pdf.set_font("Helvetica", "", 10)
+
+    page_head()
+    blank = {"day": None, "zone": "", "fluence": "", "hz": "", "operator": ""}
+    lines = list(rows) + [blank] * max(0, 15 - len(rows))
+    for i, r in enumerate(lines):
+        if pdf.get_y() + 8 > pdf.h - 14:
+            page_head()
+        fill = i % 2 == 1
+        pdf.set_fill_color(246, 248, 252)
+        vals = [_day(r.get("day")), r.get("zone") or "", r.get("fluence") or "", r.get("hz") or "", r.get("operator") or ""]
+        for w, v in zip(widths, vals):
+            pdf.cell(w, 8, _t(v), border=1, fill=fill)
+        pdf.ln(8)
+    return bytes(pdf.output())

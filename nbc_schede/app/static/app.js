@@ -284,7 +284,8 @@ async function laserTab(c) {
       <div class="meta">
         <div><b>Nome e cognome</b>${esc(c.name)}</div>
         <div><b>Data di nascita</b>${c.birth_date ? fmtDay(c.birth_date) : `<a class="no-print" href="#/c/${c.id}/modifica">aggiungi</a>`}</div>
-        <div class="no-print" style="text-align:right"><button id="print">🖨 Stampa scheda</button></div>
+        <div class="no-print bar" style="justify-content:flex-end"><button id="print">🖨 Stampa scheda</button>
+          <a class="btn" href="${pdfLink(`api/clients/${c.id}/laser/pdf`)}" target="_blank" rel="noopener">📄 PDF</a></div>
       </div>
       <div class="scroll-x"><table class="sheet">
         <thead><tr><th>Data</th><th>Zona trattata</th><th>Freq. J/cm²</th><th>Freq. Hz</th><th>Operatore</th><th class="act"></th></tr></thead>
@@ -296,7 +297,7 @@ async function laserTab(c) {
       ${rows.length ? `<p class="sub hint no-print">Tocca un trattamento per modificarlo, scorrilo verso sinistra per eliminarlo</p>` : `<div class="empty no-print">Nessun trattamento registrato</div>`}
     </div>
     <div class="card no-print" id="tForm"></div>`;
-  $("#print").onclick = () => window.print();
+  printButton($("#print"), () => post(`/api/clients/${c.id}/laser/print`, { copies: 1 }), "Scheda inviata alla stampante");
 
   const newT = { zone: last.zone, fluence: last.fluence, hz: last.hz };
   const form = (t) => {
@@ -371,6 +372,7 @@ async function settingsView() {
       <div class="bar" style="margin-top:10px"><input id="opname" class="grow" placeholder="Nome operatrice" style="flex:1" autocapitalize="words">
         <button class="primary" id="opadd">Aggiungi</button></div>
     </div>
+    <div class="card" id="printerCard"></div>
     <div class="card" id="archCard"></div>
     <div class="card"><h2>Anagrafica clienti</h2>
       <p class="sub">In archivio: <b>${st.clients}</b> clienti. Per aggiornarla esporta le clienti da Vaniglia Pro in CSV e caricalo qui:
@@ -383,6 +385,7 @@ async function settingsView() {
     await api("/api/operators/" + b.dataset.op, { method: "DELETE" }); toast("Tolta"); settingsView();
   }));
   await archiveCard($("#archCard"));
+  printerCard($("#printerCard")).catch(e => { $("#printerCard").innerHTML = `<h2>Stampante</h2><p class="sub">${esc(e.message)}</p>`; });
   $("#opadd").onclick = safe(async () => {
     if (!val("opname")) return;
     await post("/api/operators", { name: val("opname") }); toast("Aggiunta"); settingsView();

@@ -28,3 +28,14 @@ Se il Synology è spento, i moduli restano salvati nell'add-on e vengono copiati
 (all'avvio, alla firma di un nuovo modulo o con "Riprova la copia").
 
 I testi (consenso, informativa) sono in `app/texts.py`: **bozza da far validare dal consulente privacy**.
+
+## Stampa
+
+L'add-on manda i PDF direttamente alla stampante di rete (protocollo IPP, porta 631), senza passare dall'iPad.
+Indirizzo nell'opzione `stampante` (es. `192.168.40.23`, oppure un indirizzo completo `ipp://...`).
+In Impostazioni dell'app, la sezione "Stampante" mostra modello, stato e se accetta i PDF.
+
+- Diario trattamenti: 🖨 Stampa scheda (A4 orizzontale con righe vuote) · 📄 PDF per l'anteprima
+- Modulo firmato: 🖨 Stampa; dopo la firma anche "Stampa una copia per la cliente"
+- Scheda cliente → Moduli privacy firmati: 🖨 Stampa tutti (della cliente)
+- Impostazioni → Stampa tutti i moduli (tutto l'archivio o un intervallo di date, con conteggio pagine prima)
