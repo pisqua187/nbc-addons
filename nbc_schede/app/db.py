@@ -1,6 +1,7 @@
 """Database SQLite: clienti, storico smalti, trattamenti di fotoepilazione."""
 
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -98,15 +99,34 @@ class Database:
         self.path = path
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-        # Una connessione condivisa: SQLite + un solo processo, il lock lo gestisce lui.
-        self.conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
+        # Una connessione PER THREAD: le richieste arrivano in parallelo (FastAPI le esegue su piu'
+        # thread) e una connessione sqlite3 condivisa fra thread si rompe ("bad parameter or other
+        # API misuse", errori 500 e falsi "Cliente non trovata"). In WAL le letture vanno in parallelo,
+        # le scritture si mettono in coda da sole (timeout).
+        self._local = threading.local()
+        if path == ":memory:":  # test: database in memoria condiviso fra le connessioni
+            self._target, self._uri = f"file:mem{id(self)}?mode=memory&cache=shared", True
+            self._anchor = self._connect()  # tiene in vita il database in memoria
+        else:
+            self._target, self._uri = path, False
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.executescript(SCHEMA)
         # Operatrici di partenza. INSERT OR IGNORE: una tolta dalle Impostazioni resta tolta.
         self.conn.executemany("INSERT OR IGNORE INTO operators(name) VALUES (?)",
                               [(n,) for n in DEFAULT_OPERATORS])
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._target, uri=self._uri, isolation_level=None, timeout=15)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        c = getattr(self._local, "conn", None)
+        if c is None:
+            c = self._local.conn = self._connect()
+        return c
 
     @contextmanager
     def tx(self):
