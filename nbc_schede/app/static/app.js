@@ -19,6 +19,19 @@ async function api(path, opts = {}) {
   // percorso relativo: funziona sia su http://ip:8077/ sia dentro Home Assistant (Ingress)
   const res = await fetch(path.replace(/^\//, ""), { ...opts, headers: { "Content-Type": "application/json", "X-Api-Key": apiKey } });
   if (res.status === 401) {
+    // Due 401 diversi: quello della NOSTRA app (chiave sbagliata, solo con la porta diretta e API_KEY)
+    // e quello di Home Assistant quando la sessione Ingress e' scaduta (es. iPad rimasto in standby).
+    // Nel secondo caso non si chiede nessuna chiave: si ricarica Home Assistant, che apre una sessione nuova.
+    const e401 = await res.clone().json().catch(() => ({}));
+    if (e401.detail !== "Chiave di accesso mancante o errata") {
+      let reloaded = 0; try { reloaded = +sessionStorage.getItem("salone.reload401") || 0; } catch {}
+      if (Date.now() - reloaded > 60000) {  // al massimo una volta al minuto, mai in loop
+        try { sessionStorage.setItem("salone.reload401", String(Date.now())); } catch {}
+        try { (window.top !== window ? window.top : window).location.reload(); } catch { location.reload(); }
+        return new Promise(() => {});  // la pagina si sta ricaricando
+      }
+      throw new Error("Sessione di Home Assistant scaduta: chiudi e riapri l'app Home Assistant");
+    }
     const k = prompt("Chiave di accesso del server");
     if (k === null) throw new Error("Serve la chiave di accesso");
     apiKey = k; store.set("salone.key", k);
