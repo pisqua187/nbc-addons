@@ -105,7 +105,29 @@ async function router() {
   }
   go("#/");
 }
-window.addEventListener("hashchange", () => { depth++; router(); });
+window.addEventListener("hashchange", () => { depth++; trackHistory(); router(); });
+
+/* Posizione nella cronologia: 0 = schermata con cui si e' aperta l'app. Ogni schermata interna
+   (cliente, Fotoepilazione, Impostazioni...) aggiunge una voce alla cronologia, che dentro Home Assistant
+   e' la stessa della pagina: per tornare alla dashboard da cui si e' partiti bisogna tornare indietro
+   di (posizione + 1) voci, non di una sola. La posizione e' salvata nello "state" di ogni voce,
+   cosi' resta giusta anche andando avanti/indietro o dopo un ricaricamento. */
+let histIdx = 0;
+try {
+  if (typeof history.state?.nbcIdx === "number") histIdx = history.state.nbcIdx;
+  else history.replaceState({ nbcIdx: 0 }, "");
+} catch {}
+function trackHistory() {
+  try {
+    if (typeof history.state?.nbcIdx === "number") histIdx = history.state.nbcIdx;  // voce gia' vista
+    else { histIdx++; history.replaceState({ nbcIdx: histIdx }, ""); }              // schermata nuova
+  } catch {}
+}
+/* cambia schermata SENZA aggiungere una voce alla cronologia (al posto di location.replace) */
+function replaceHash(hash) {
+  try { history.replaceState({ nbcIdx: histIdx }, "", hash); } catch { location.replace(hash); return; }
+  router();
+}
 $("#back").onclick = () => depth > 0 ? history.back() : go("#/");
 $("#settingsBtn").onclick = () => go("#/impostazioni");
 
@@ -116,12 +138,24 @@ $("#settingsBtn").onclick = () => go("#/impostazioni");
   try { if (window.top !== window && window.top.location.origin === location.origin) top = window.top; } catch {}
   if (!top) return;
   const url = document.body.dataset.dashboard || "/";
-  $("#dash").hidden = false;
-  $("#dash").onclick = () => {
+  // Naviga HA verso una dashboard specifica (fallback per accesso diretto all'app).
+  const goDash = () => {
     try {
       top.history.pushState(null, "", url);
       top.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
     } catch { top.location.href = url; }
+  };
+  $("#dash").hidden = false;
+  $("#dash").onclick = () => {
+    // Torna alla dashboard DEL DISPOSITIVO: quella da cui si e' aperto Schede Tecniche
+    // (card con "action: navigate"). Si torna indietro di tutte le schermate aperte nell'app + 1,
+    // non di una sola: history.back() porterebbe solo alla schermata precedente dell'app.
+    // Fallback a dashboard_url se prima dell'app non c'e' cronologia (deep-link / kiosk aperto diretto).
+    const steps = histIdx + 1;
+    try {
+      if (history.length > steps) history.go(-steps);
+      else goDash();
+    } catch { goDash(); }
   };
 })();
 const setTitle = (t) => { $("#title").textContent = t; document.title = t + " · Salone"; };
@@ -191,7 +225,7 @@ async function clientForm(id) {
     const body = { name: val("name"), phone: val("phone") || null, birth_date: val("birth") || null, notes: val("notes") || null };
     const saved = id ? await post("/api/clients/" + id, body, "PUT") : await post("/api/clients", body);
     toast("Salvata");
-    if (id) history.back(); else location.replace("#/c/" + saved.id);
+    if (id) history.back(); else replaceHash("#/c/" + saved.id);
   });
 }
 
